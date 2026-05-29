@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Exclude downloaded files
+output/
+urls.txt
+.DS_Store

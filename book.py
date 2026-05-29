@@ -1,105 +1,103 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
-import os
-import pathlib
-import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import bs4
 import requests
-from PyPDF2 import PdfFileMerger
+from pypdf import PdfWriter
+
+INTRO = ["dedication.pdf", "preface.pdf", "toc.pdf"]
+APPENDICES = [
+    "dialogue-vmm.pdf",
+    "vmm-intro.pdf",
+    "dialogue-monitors.pdf",
+    "threads-monitors.pdf",
+    "dialogue-labs.pdf",
+    "lab-tutorial.pdf",
+    "lab-projects-systems.pdf",
+    "lab-projects-xv6.pdf",
+]
 
 
-def scrape_urls():
-
+def scrape_urls2() -> None:
     url = "http://pages.cs.wisc.edu/~remzi/OSTEP/#book-chapters"
     resp = requests.get(url)
     soup = bs4.BeautifulSoup(resp.text, "html.parser")
     base_url = "http://pages.cs.wisc.edu/~remzi/OSTEP/{}"
-    with open("./urls.txt", "w+") as f:
-        for link in soup.find_all("a", {"style": "color:black"}):
-            print(base_url.format(link.attrs["href"]), file=f)
+    rslt: dict[int, str] = {}
 
+    # insert intro
+    for i, cha_url in enumerate(INTRO):
+        rslt[i] = base_url.format(cha_url)
 
-def scrape_urls2():
-
-    url = "http://pages.cs.wisc.edu/~remzi/OSTEP/#book-chapters"
-    resp = requests.get(url)
-    soup = bs4.BeautifulSoup(resp.text, "html.parser")
-    base_url = "http://pages.cs.wisc.edu/~remzi/OSTEP/{}"
-    rslt = {}
     for link in soup.find_all("td"):
         el = link.find("small")
-        small = link.find("small").get_text() if el else ""
-        el = link.find("a")
-        url = el.attrs["href"] if el and "href" in el.attrs else ""
+        small_text = el.get_text() if el else ""
+        a_tag = link.find("a")
+        href = a_tag.attrs["href"] if a_tag and "href" in a_tag.attrs else ""
         try:
-            small = int(small)
-            small = 100 + small
-        except:
-            small = None
-        if small and url:
-            rslt[small] = base_url.format(url)
+            chapter = int(small_text) + 100
+        except (ValueError, TypeError):
+            chapter = None
+        if chapter and href:
+            rslt[chapter] = base_url.format(href)
 
-    with open("./urls.txt", "w+") as f:
+    # insert appendices
+    for i, cha_url in enumerate(APPENDICES):
+        i += 900  # append to the end
+        rslt[i] = base_url.format(cha_url)
+
+    with open("./urls.txt", "w", encoding="utf-8") as f:
         for k in sorted(rslt.keys()):
             print(k, rslt[k], file=f)
 
 
-def download_book():
-    def download(i, url):
-        url = url.strip()
-        print(f" {i} downloading {url}")
-        res = requests.get(url, timeout=120)
-        print(f"{res}")
-        if res.ok:
-            last_name = url.split("/")[-1]
-            file_name = f"./output/{i}-{last_name}"
-            print(f"{last_name}{file_name}")
-            with open(f"{file_name}", "wb") as f:
-                f.write(res.content)
-
-    threads = []
-
-    with open("./urls.txt") as f:
-        for line in f:
-            i, url = line.split(" ")
-            print(f"{i}{url}")
-            t = threading.Thread(target=download, args=(i, url))
-            threads.append(t)
-            t.start()
-
-    for t in threads:
-        t.join()
-
-
-def merge_pdf():
+def download_book() -> None:
     output_dir = Path("./output")
-    files = [file.resolve() for file in sorted(output_dir.glob("*.pdf"))]
+    output_dir.mkdir(exist_ok=True)
 
-    files = files[-2:] + files[0:-2]
+    def download(index: str, url: str) -> None:
+        url = url.strip()
+        print(f"  {index} downloading {url}")
+        res = requests.get(url, timeout=120)
+        print(res)
+        if res.ok:
+            filename = url.split("/")[-1]
+            dest = output_dir / f"{index}-{filename}"
+            print(f"{filename} -> {dest}")
+            dest.write_bytes(res.content)
 
-    # print(files)
-    merger = PdfFileMerger()
+    with open("./urls.txt", encoding="utf-8") as f:
+        tasks = [line.split(" ", 1) for line in f if line.strip()]
 
+    with ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(download, i.strip(), url.strip()) for i, url in tasks
+        }
+        for future in as_completed(futures):
+            future.result()  # re-raise any download exceptions
+
+
+def merge_pdf() -> None:
+    output_dir = Path("./output")
+    files = sorted(output_dir.glob("*.pdf"))
+
+    writer = PdfWriter()
     for pdf in files:
-        merger.append(open(pdf, "rb"))
+        writer.append(pdf)
+    with open("OSTEP.pdf", "wb") as fout:
+        writer.write(fout)
+    writer.close()
 
-    with open("book.pdf", "wb") as fout:
-        merger.write(fout)
 
-
-def read_file():
-    f = open("./urls3.txt")
-    for i in f:
-        index, url = i.split(" ")
-        print(f"{index}{url}")
+def read_file() -> None:
+    with open("./urls.txt", encoding="utf-8") as f:
+        for line in f:
+            index, url = line.split(" ", 1)
+            print(f"{index}{url}")
 
 
 if __name__ == "__main__":
-    # scrape_urls2()
-    # download_book()
+    scrape_urls2()
+    download_book()
     merge_pdf()
     # read_file()
-
