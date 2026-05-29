@@ -27,6 +27,7 @@ def scrape_urls2() -> None:
 
     # insert intro
     for i, cha_url in enumerate(INTRO):
+        i += 100
         rslt[i] = base_url.format(cha_url)
 
     for link in soup.find_all("td"):
@@ -35,7 +36,7 @@ def scrape_urls2() -> None:
         a_tag = link.find("a")
         href = a_tag.attrs["href"] if a_tag and "href" in a_tag.attrs else ""
         try:
-            chapter = int(small_text) + 100
+            chapter = int(small_text) + 200
         except (ValueError, TypeError):
             chapter = None
         if chapter and href:
